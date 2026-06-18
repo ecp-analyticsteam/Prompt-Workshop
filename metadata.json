@@ -1,0 +1,6 @@
+{
+  "name": "Trip Itinerary Planner",
+  "description": "A clean-architecture custom trip itinerary planner powered by Gemini. Simply submit a destination and number of days to get a meticulously curated day-by-day sightseeing checklist, travel suggestions, packing tips, and localized cost indicators.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
