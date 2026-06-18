@@ -3,49 +3,60 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export interface Activity {
-  id: string; // Dynamic client/server UUID or ID
-  timeOfDay: 'Morning' | 'Afternoon' | 'Evening' | 'Night';
-  title: string;
-  description: string;
-  location: string;
-  estimatedCost: string;
-  duration: string;
-}
+import { Request, Response } from 'express';
+import { GeminiTravelPlannerGateway } from '../src/adapters/gateways/GeminiTravelPlannerGateway';
+import { GenerateItineraryUseCase } from '../src/domain/usecases/GenerateItineraryUseCase';
 
-export interface DayPlan {
-  dayNumber: number;
-  theme: string;
-  title: string;
-  activities: Activity[];
-}
+// Initialize the core services
+// Clean Architecture decoupling makes it extremely clean to spin up in Serverless runtime
+const travelPlannerGateway = new GeminiTravelPlannerGateway();
+const generateItineraryUseCase = new GenerateItineraryUseCase(travelPlannerGateway);
 
-export interface TripItinerary {
-  id: string;
-  destination: string;
-  numberOfDays: number;
-  theme: string;
-  summary: string;
-  days: DayPlan[];
-  packingSuggestions: string[];
-  travelTips: string[];
-}
+export default async function handler(req: any, res: any) {
+  // Defend against wrong HTTP methods (Security Mandate)
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).json({ error: `Method ${req.method} not allowed. Please use POST.` });
+  }
 
-export class TripItineraryEntity {
-  static validate(destination: string, numberOfDays: number): { isValid: boolean; error?: string } {
-    if (!destination || typeof destination !== 'string' || destination.trim().length === 0) {
-      return { isValid: false, error: 'Destination is required.' };
+  try {
+    const { destination, numberOfDays, theme } = req.body || {};
+
+    // 1. Server-side type check and sanitization (OWASP A03:2021-Injection defense)
+    if (typeof destination !== 'string') {
+      return res.status(400).json({ error: 'Destination must be a text string.' });
     }
-    if (destination.length > 100) {
-      return { isValid: false, error: 'Destination is too long (maximum 100 characters).' };
+
+    const daysNum = Number(numberOfDays);
+    if (isNaN(daysNum) || !Number.isInteger(daysNum)) {
+      return res.status(400).json({ error: 'Number of days must be an integer.' });
     }
-    // Prevent malicious input characters in destination to secure against XSS/injection at Entity level
-    if (/[<>{}]/.test(destination)) {
-      return { isValid: false, error: 'Invalid characters in destination.' };
+
+    if (typeof theme !== 'string') {
+      return res.status(400).json({ error: 'Theme must be a text string.' });
     }
-    if (isNaN(numberOfDays) || numberOfDays < 1 || numberOfDays > 14) {
-      return { isValid: false, error: 'Number of days must be between 1 and 14.' };
+
+    if (daysNum < 1 || daysNum > 14) {
+      return res.status(400).json({ error: 'You can generate itineraries up to 14 days.' });
     }
-    return { isValid: true };
+
+    // 2. Execute business Use Case
+    const itinerary = await generateItineraryUseCase.execute({
+      destination,
+      numberOfDays: daysNum,
+      theme,
+    });
+
+    // 3. Return results
+    return res.status(200).json(itinerary);
+  } catch (error: any) {
+    console.error('VERCEL_SERVERLESS_ERROR:', error);
+
+    // Fail-secure error handling (Security Mandate)
+    const userFriendlyMessage = error.message && !error.message.includes('API_KEY') 
+      ? error.message 
+      : 'An unexpected internal error occurred on Vercel handler. Please try again.';
+
+    return res.status(500).json({ error: userFriendlyMessage });
   }
 }
